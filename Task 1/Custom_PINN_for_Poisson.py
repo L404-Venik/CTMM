@@ -62,42 +62,39 @@ class Sampler:
     
 # Creating Neural Network
 class NN(nn.Module):
-
-    def __init__(self, input_size, hidden_size, output_size):
+    def __init__(self, input_size, hidden_size, output_size, num_layers = 2):
         super(NN, self).__init__()
-        self.l1 = nn.Linear(input_size, hidden_size)
-        # initialize weight and Biases
-        nn.init.xavier_uniform_(self.l1.weight)
-        self.l1.bias.data.fill_(0.0)
-
-        self.tanh = nn.Tanh()
-        self.l2 = nn.Linear(hidden_size, hidden_size)
-        self.l2.bias.data.fill_(0.0)
-        nn.init.xavier_uniform_(self.l2.weight)
-
-        self.l3 = nn.Linear(hidden_size, hidden_size)
-        self.l3.bias.data.fill_(0.0)
-        nn.init.xavier_uniform_(self.l3.weight)
-
-        self.l4 = nn.Linear(hidden_size, output_size)
-        nn.init.xavier_uniform_(self.l4.weight)
-        self.l4.bias.data.fill_(0.0)
+        
+        # Входной слой
+        layers = [nn.Linear(input_size, hidden_size), nn.Tanh()]
+        nn.init.xavier_uniform_(layers[0].weight)
+        layers[0].bias.data.fill_(0.0)
+        
+        # Скрытые слои
+        for _ in range(num_layers):
+            layer = nn.Linear(hidden_size, hidden_size)
+            nn.init.xavier_uniform_(layer.weight)
+            layer.bias.data.fill_(0.0)
+            layers.append(layer)
+            layers.append(nn.Tanh())
+        
+        # Выходной слой
+        out_layer = nn.Linear(hidden_size, output_size)
+        nn.init.xavier_uniform_(out_layer.weight)
+        out_layer.bias.data.fill_(0.0)
+        layers.append(out_layer)
+        
+        # Объединяем в nn.Sequential
+        self.model = nn.Sequential(*layers)
 
     def forward(self, x):
-        out = self.l1(x)
-        out = self.tanh(out)
-        out = self.l2(out)
-        out = self.tanh(out)
-        out = self.l3(out)
-        out = self.tanh(out)
-        out = self.l4(out)
-        return out
+        return self.model(x)
     
 
     
 class PINN:
 # Initialize the class
-    def __init__(self, layers, operator, bcs_sampler, res_sampler, learning_r = 0.1):
+    def __init__(self, layers, operator, bcs_sampler, res_sampler, internal_layers_number = 2, learning_r = 0.1):
 
         # Samplers
         self.operator = operator
@@ -137,7 +134,7 @@ class PINN:
     # Gradient operation
     def gradient(self, u, x, grad_outputs=None):
         if grad_outputs is None:
-            grad_outputs = torch.ones_like(u)
+            grad_outputs = torch.ones_like(u, requires_grad=True)
         grad = torch.autograd.grad(u, [x], grad_outputs = grad_outputs, create_graph=True)[0]
         return grad
 
@@ -166,10 +163,10 @@ class PINN:
             X_res_batch, u_res_batch = self.fetch_minibatch(self.res_sampler, batch_size // 5 * 4)
             
             # Tensor
-            X_bcs_batch_tens = torch.from_numpy(X_bcs_batch).float().to(device).requires_grad_(True)
-            u_bcs_batch_tens = torch.from_numpy(u_bcs_batch).float().to(device).requires_grad_(True)
-            X_res_batch_tens = torch.from_numpy(X_res_batch).float().to(device).requires_grad_(True)
-            u_res_batch_tens = torch.from_numpy(u_res_batch).float().to(device).requires_grad_(True)
+            X_bcs_batch_tens = torch.from_numpy(X_bcs_batch).float().to(device)
+            u_bcs_batch_tens = torch.from_numpy(u_bcs_batch).float().to(device)
+            X_res_batch_tens = torch.from_numpy(X_res_batch).requires_grad_().float().to(device)
+            u_res_batch_tens = torch.from_numpy(u_res_batch).float().to(device)
             
             u_pred_bcs = self.net_u(X_bcs_batch_tens[:, 0:1], X_bcs_batch_tens[:, 1:2])
             r_pred = self.net_r(X_res_batch_tens[:, 0:1], X_res_batch_tens[:, 1:2])
@@ -212,7 +209,7 @@ class PINN:
         with torch.no_grad():
             u_star = self.net_u(x, y)
 
-        return u_star
+        return u_star.cpu().detach()
 
     # Evaluates predictions at test points
     def predict_r(self, X_star):
@@ -222,10 +219,10 @@ class PINN:
         
         self.nn.eval()
 
-        with torch.no_grad():
-            r_star = self.net_r(x, y)
+        #with torch.no_grad():
+        r_star = self.net_r(x.requires_grad_(), y.requires_grad_())
             
-        return r_star
+        return r_star.detach().cpu()
     
     def load_best_model(self, path="best_custom.pth"):
         self.nn.load_state_dict(torch.load(path))
