@@ -102,7 +102,7 @@ class PINN:
         self.res_sampler = res_sampler
         
         # Neural Network
-        self.nn = NN(layers[0], layers[1], layers[-1]).to(device)
+        self.nn = NN(layers[0], layers[1], layers[-1], internal_layers_number).to(device)
 
         self.optimizer_Adam = torch.optim.Adam(params=self.nn.parameters(), lr=learning_r, betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
         self.lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=self.optimizer_Adam, gamma=0.9)
@@ -121,13 +121,15 @@ class PINN:
     def net_r(self, x, y):
         u = self.net_u(x, y)
         
-        u_x = self.gradient(u, x)
-        u_xx = self.gradient(u_x, x)
+        # u_x = self.gradient(u, x)
+        # u_xx = self.gradient(u_x, x)
         
-        u_y = self.gradient(u, y)
-        u_yy = self.gradient(u_y, y)
+        # u_y = self.gradient(u, y)
+        # u_yy = self.gradient(u_y, y)
         
-        residual = self.operator(u_xx + u_yy, x, y)
+        # residual = self.operator(u_xx + u_yy, x, y)
+
+        residual = self.operator(u, x, y)
         return residual
     
 
@@ -174,7 +176,7 @@ class PINN:
             loss_bcs = torch.mean((u_bcs_batch_tens - u_pred_bcs) ** 2)
             loss_res = torch.mean((u_res_batch_tens - r_pred )** 2)
             
-            loss = loss_res + loss_bcs
+            loss = loss_res + 2 * loss_bcs
             
             self.optimizer_Adam.zero_grad()
             loss.backward()
